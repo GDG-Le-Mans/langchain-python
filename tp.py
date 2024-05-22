@@ -15,8 +15,7 @@ from langchain_core.vectorstores import VectorStore, VectorStoreRetriever
 from langchain_groq import ChatGroq
 from langchain_together.embeddings import TogetherEmbeddings
 
-from fastapi import FastAPI, Response
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from os import system, environ
