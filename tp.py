@@ -15,19 +15,37 @@ from langchain_core.vectorstores import VectorStore, VectorStoreRetriever
 from langchain_groq import ChatGroq
 from langchain_together.embeddings import TogetherEmbeddings
 
+from fastapi import FastAPI, Response
+from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+
 from os import system, environ
 from dotenv import dotenv_values
 from typing import Dict, List
+
+import uvicorn
+import json
+
+vector_store_directory = "vector_store/"
+chat_history_file = "chat_history.json"
 
 config: Dict = {
     **dotenv_values(dotenv_path=".env"),  
     **environ,  
 }
 
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 ### VECTOR TOOLS
-
-vector_store_directory = "vector_store/"
-
 
 def create_vector_store(
     documents: List[Document],
@@ -70,6 +88,23 @@ def pdf_to_documents(
     documents: List[Document] = loader.load()
     return documents
 
+### CHAT HISTORY
+
+def load_chat_history() -> List[tuple[str]]:
+    return list(
+        map(lambda x: (x[0], x[1]), json.load(open(chat_history_file)))
+    )
+    
+def add_to_chat_history(question:str, answer:str):
+    chat_history: List[tuple[str]] = load_chat_history()
+    chat_history.append((question, answer))
+    with open(chat_history_file, 'w') as f:
+        json.dump(chat_history, f)
+        
+def clear_chat_history():
+    with open(chat_history_file, 'w') as f:
+        json.dump([], f)
+
 
 ### CHAT TOOLS
 
@@ -78,7 +113,6 @@ def load_files(
     pdf_paths: List[str],
     embeddings: Embeddings,
 ):
-    clear_vector_store()
     documents: List[Document] = []
     for pdf_path in pdf_paths:
         documents.extend(split_documents(pdf_to_documents(pdf_path=pdf_path)))
@@ -90,10 +124,10 @@ def load_files(
 
 def ask(
     question: str,
-    chat_history: List[tuple[str]],
     chat_model: BaseChatModel,
     embeddings: Embeddings,
 ) -> str:
+    chat_history: List[tuple[str]] = load_chat_history()
     vector_store: Chroma = get_vector_store(embeddings=embeddings)
     retriever: VectorStoreRetriever = vector_store.as_retriever()
     prompt_template = """Answer the question at the end using this context :
@@ -120,6 +154,7 @@ def ask(
             "chat_history": chat_history,
         }
     )
+    add_to_chat_history(question=question, answer=result["answer"])
     return result["answer"]
 
 
@@ -128,18 +163,25 @@ def ask(
 chat_groq: ChatGroq = ChatGroq(temperature=0, groq_api_key=config["GROQ_API_KEY"], model_name="mixtral-8x7b-32768")
 embeddings_together_ai: TogetherEmbeddings = TogetherEmbeddings(model="togethercomputer/m2-bert-80M-8k-retrieval", api_key=config["TOGETHER_AI_API_KEY"])
 
-my_pdfs: List[str] = ["pdf/dogs.pdf", "pdf/cats.pdf"]
-load_files(
-    pdf_paths=my_pdfs,
-    embeddings=embeddings_together_ai,
-)
+@app.get("/ask/{question}")
+async def ask_api(question):
+    return {"answer": ask(question=question, embeddings=embeddings_together_ai, chat_model=chat_groq,)}
 
-my_chat_history: List[tuple[str]] = []
-my_question: str = "what is a bird"
-answer: str = ask(
-    question=my_question,
-    chat_history=my_chat_history,
-    embeddings=embeddings_together_ai,
-    chat_model=chat_groq,
-)
-print(answer)
+@app.get("/load_pdf/{pdf}")
+async def load_files_api(pdf):
+    load_files(pdf_paths=["pdf/"+pdf], embeddings=embeddings_together_ai,)
+    return {"status": "done"}
+
+@app.get("/clear_pdfs")
+async def clear_vector_store_api():
+    clear_vector_store()
+    return {"status": "done"}
+
+@app.get("/clear_chat_history")
+async def clear_chat_history_api():
+    clear_chat_history()
+    return {"status": "done"}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="127.0.0.1", port=8000)
+
