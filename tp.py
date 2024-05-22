@@ -12,10 +12,17 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.vectorstores import VectorStore, VectorStoreRetriever
 
-from os import system
-from typing import List
+from langchain_groq import ChatGroq
+from langchain_together.embeddings import TogetherEmbeddings
 
-from tools.ollama_model import embeddings_mistral, llm_txt
+from os import system, environ
+from dotenv import dotenv_values
+from typing import Dict, List
+
+config: Dict = {
+    **dotenv_values(dotenv_path=".env"),  
+    **environ,  
+}
 
 ### VECTOR TOOLS
 
@@ -118,27 +125,21 @@ def ask(
 
 ### DEMO
 
-my_pdfs: List[str] = ["example_docs/pdf/dogs.pdf", "example_docs/pdf/cats2.pdf"]
+chat_groq: ChatGroq = ChatGroq(temperature=0, groq_api_key=config["GROQ_API_KEY"], model_name="mixtral-8x7b-32768")
+embeddings_together_ai: TogetherEmbeddings = TogetherEmbeddings(model="togethercomputer/m2-bert-80M-8k-retrieval", api_key=config["TOGETHER_AI_API_KEY"])
+
+my_pdfs: List[str] = ["pdf/dogs.pdf", "pdf/cats.pdf"]
 load_files(
     pdf_paths=my_pdfs,
-    embeddings=embeddings_mistral,
+    embeddings=embeddings_together_ai,
 )
 
-my_chat_history: List[tuple[str]] = [
-    (
-        "What is a bird?",
-        " A bird, according to the given context, is not mentioned or discussed. I do not know.",
-    ),
-    (
-        "What is a lizard?",
-        " A lizard, according to the given context, is not mentioned or discussed. I do not know.",
-    )
-]
-my_question: str = "tell me more"
+my_chat_history: List[tuple[str]] = []
+my_question: str = "what is a bird"
 answer: str = ask(
     question=my_question,
     chat_history=my_chat_history,
-    embeddings=embeddings_mistral,
-    chat_model=llm_txt,
+    embeddings=embeddings_together_ai,
+    chat_model=chat_groq,
 )
 print(answer)
